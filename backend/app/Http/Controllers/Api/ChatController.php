@@ -20,6 +20,16 @@ class ChatController extends Controller
             $query->where('status', $request->status);
         }
 
+        if ($request->filled('search')) {
+            $search = $request->search;
+            $query->whereHas('contact', function ($q) use ($search) {
+                $q->where('name', 'like', "%{$search}%")
+                  ->orWhere('push_name', 'like', "%{$search}%")
+                  ->orWhere('jid', 'like', "%{$search}%")
+                  ->orWhere('phone_number', 'like', "%{$search}%");
+            });
+        }
+
         if ($request->filled('instance_id')) {
             $query->where('whatsapp_instance_id', $request->instance_id);
         }

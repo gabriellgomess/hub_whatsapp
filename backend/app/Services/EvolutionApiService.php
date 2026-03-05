@@ -3,7 +3,6 @@
 namespace App\Services;
 
 use App\Models\WhatsappInstance;
-use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 
 class EvolutionApiService
@@ -54,14 +53,14 @@ class EvolutionApiService
     }
 
     // -------------------------------------------------------------------------
-    // Mensagens
+    // Mensagens — Envio
     // -------------------------------------------------------------------------
 
     public function sendText(string $to, string $text, ?string $quotedMessageId = null): array
     {
         $payload = [
             'number' => $to,
-            'text' => $text,
+            'text'   => $text,
         ];
 
         if ($quotedMessageId) {
@@ -71,48 +70,116 @@ class EvolutionApiService
         return $this->post("/message/sendText/{$this->instance->instance_name}", $payload);
     }
 
-    public function sendMedia(string $to, string $mediaUrl, string $mediaType, ?string $caption = null, ?string $filename = null): array
-    {
-        return $this->post("/message/sendMedia/{$this->instance->instance_name}", [
-            'number' => $to,
+    /**
+     * Envia imagem, vídeo ou documento.
+     * $media pode ser uma URL ou string base64.
+     * Quando base64, $mimetype é obrigatório.
+     */
+    public function sendMedia(
+        string  $to,
+        string  $media,
+        string  $mediaType,
+        ?string $caption  = null,
+        ?string $filename = null,
+        ?string $mimetype = null,
+        ?string $quotedMessageId = null
+    ): array {
+        $payload = [
+            'number'    => $to,
             'mediatype' => $mediaType,
-            'media' => $mediaUrl,
-            'caption' => $caption,
-            'fileName' => $filename,
-        ]);
+            'media'     => $media,
+            'caption'   => $caption,
+            'fileName'  => $filename,
+        ];
+
+        if ($mimetype) {
+            $payload['mimetype'] = $mimetype;
+        }
+
+        if ($quotedMessageId) {
+            $payload['quoted'] = ['key' => ['id' => $quotedMessageId]];
+        }
+
+        return $this->post("/message/sendMedia/{$this->instance->instance_name}", $payload);
+    }
+
+    /**
+     * Envia áudio no formato PTT (narrado/microfone) do WhatsApp.
+     * $audio pode ser URL ou base64.
+     */
+    public function sendWhatsAppAudio(
+        string  $to,
+        string  $audio,
+        ?string $quotedMessageId = null
+    ): array {
+        $payload = [
+            'number'   => $to,
+            'audio'    => $audio,
+            'encoding' => true,
+        ];
+
+        if ($quotedMessageId) {
+            $payload['quoted'] = ['key' => ['id' => $quotedMessageId]];
+        }
+
+        return $this->post("/message/sendWhatsAppAudio/{$this->instance->instance_name}", $payload);
     }
 
     public function sendReaction(string $to, string $messageId, string $emoji): array
     {
         return $this->post("/message/sendReaction/{$this->instance->instance_name}", [
-            'key' => ['remoteJid' => $to, 'id' => $messageId],
+            'key'      => ['remoteJid' => $to, 'id' => $messageId],
             'reaction' => $emoji,
         ]);
     }
 
-    public function markAsRead(string $remoteJid, array $messageIds): array
+    // -------------------------------------------------------------------------
+    // Mensagens — Exclusão
+    // -------------------------------------------------------------------------
+
+    /**
+     * Apaga mensagem para todos.
+     * Só funciona para mensagens enviadas por nós (fromMe = true).
+     */
+    public function deleteMessageForEveryone(string $remoteJid, string $messageId, bool $fromMe): array
     {
-        return $this->post("/chat/readMessage/{$this->instance->instance_name}", [
-            'readMessages' => array_map(fn ($id) => [
-                'remoteJid' => $remoteJid,
-                'fromMe' => false,
-                'id' => $id,
-            ], $messageIds),
+        return $this->delete("/chat/deleteMessageForEveryone/{$this->instance->instance_name}", [
+            'id'        => $messageId,
+            'remoteJid' => $remoteJid,
+            'fromMe'    => $fromMe,
         ]);
     }
 
-    public function deleteMessage(string $remoteJid, string $messageId, bool $fromMe): array
+    // -------------------------------------------------------------------------
+    // Mensagens — Mídia
+    // -------------------------------------------------------------------------
+
+    /**
+     * Busca o conteúdo em base64 de uma mensagem de mídia recebida.
+     * Retorna array com campos: base64, mimetype, fileName, etc.
+     */
+    public function getMediaBase64(string $messageId, bool $convertToMp4 = false): array
     {
-        return $this->delete("/chat/deleteMessage/{$this->instance->instance_name}", [
-            'id' => $messageId,
-            'remoteJid' => $remoteJid,
-            'fromMe' => $fromMe,
+        return $this->post("/chat/getBase64FromMediaMessage/{$this->instance->instance_name}", [
+            'message'      => ['key' => ['id' => $messageId]],
+            'convertToMp4' => $convertToMp4,
         ]);
     }
 
     // -------------------------------------------------------------------------
     // Chats / Contatos
     // -------------------------------------------------------------------------
+
+    public function markAsRead(string $remoteJid, array $messageIds): array
+    {
+        return $this->post("/chat/readMessage/{$this->instance->instance_name}", [
+            'readMessages' => array_map(fn ($id) => [
+                'remoteJid' => $remoteJid,
+                'fromMe'    => false,
+                'id'        => $id,
+            ], $messageIds),
+        ]);
+    }
 
     public function findChats(): array
     {
@@ -147,7 +214,7 @@ class EvolutionApiService
         return Http::baseUrl($this->instance->evolution_api_url)
             ->withHeader('apikey', $this->instance->evolution_api_key)
             ->acceptJson()
-            ->timeout(15);
+            ->timeout(30);
     }
 
     private function get(string $endpoint): array

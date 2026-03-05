@@ -31,6 +31,16 @@ Route::middleware('auth:sanctum')->group(function () {
         return Illuminate\Support\Facades\Broadcast::auth($request);
     });
 
+    // Agentes (para atribuição de chats)
+    Route::get('/agents', function (Illuminate\Http\Request $request) {
+        return response()->json(
+            \App\Models\User::where('company_id', $request->user()->company_id)
+                ->where('active', true)
+                ->orderBy('name')
+                ->get(['id', 'name', 'role'])
+        );
+    });
+
     // Chats
     Route::get('/chats', [ChatController::class, 'index']);
     Route::get('/chats/{chat}', [ChatController::class, 'show']);
@@ -41,6 +51,8 @@ Route::middleware('auth:sanctum')->group(function () {
     // Mensagens
     Route::get('/chats/{chat}/messages', [MessageController::class, 'index']);
     Route::post('/chats/{chat}/messages', [MessageController::class, 'send']);
+    Route::delete('/chats/{chat}/messages/{message}', [MessageController::class, 'destroy']);
+    Route::get('/chats/{chat}/messages/{message}/media', [MessageController::class, 'media']);
 
     // Admin (apenas role=admin)
     Route::middleware('App\Http\Middleware\AdminMiddleware')->prefix('admin')->group(function () {

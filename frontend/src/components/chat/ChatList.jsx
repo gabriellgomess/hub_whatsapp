@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getChats } from '../../api/chats'
 import { useAuth } from '../../context/AuthContext'
@@ -14,10 +14,18 @@ const STATUS_TABS = [
 export default function ChatList({ selectedChatId, onSelectChat, statusFilter, onStatusFilter }) {
   const { user } = useAuth()
   const qc = useQueryClient()
+  const [searchInput, setSearchInput] = useState('')
+  const [search, setSearch] = useState('')
+
+  // Debounce da busca: só dispara query após 400ms sem digitar
+  useEffect(() => {
+    const timer = setTimeout(() => setSearch(searchInput), 400)
+    return () => clearTimeout(timer)
+  }, [searchInput])
 
   const { data, isLoading } = useQuery({
-    queryKey: ['chats', statusFilter],
-    queryFn: () => getChats({ status: statusFilter }),
+    queryKey: ['chats', statusFilter, search],
+    queryFn: () => getChats({ status: statusFilter, search: search || undefined }),
     refetchInterval: 30000,
   })
 
@@ -61,9 +69,19 @@ export default function ChatList({ selectedChatId, onSelectChat, statusFilter, o
           </svg>
           <input
             type="text"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
             placeholder="Buscar conversa..."
             className="w-full bg-gray-800 border border-gray-700 text-white text-sm rounded-lg pl-9 pr-3 py-2 focus:outline-none focus:border-green-500 transition-colors placeholder-gray-500"
           />
+          {searchInput && (
+            <button
+              onClick={() => setSearchInput('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300"
+            >
+              ✕
+            </button>
+          )}
         </div>
 
         {/* Tabs de status */}
@@ -92,7 +110,7 @@ export default function ChatList({ selectedChatId, onSelectChat, statusFilter, o
           </div>
         ) : chats.length === 0 ? (
           <div className="text-center py-12 text-gray-500 text-sm">
-            Nenhuma conversa {statusFilter === 'open' ? 'aberta' : statusFilter === 'pending' ? 'pendente' : 'resolvida'}
+            {search ? `Nenhum resultado para "${search}"` : `Nenhuma conversa ${statusFilter === 'open' ? 'aberta' : statusFilter === 'pending' ? 'pendente' : 'resolvida'}`}
           </div>
         ) : (
           chats.map((chat) => (

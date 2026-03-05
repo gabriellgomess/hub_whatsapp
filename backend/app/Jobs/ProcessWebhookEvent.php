@@ -182,21 +182,22 @@ class ProcessWebhookEvent implements ShouldQueue
 
         if (isset($message['imageMessage'])) {
             $img = $message['imageMessage'];
-            return ['image', $img['caption'] ?? null, null, $img['mimetype'] ?? null, null];
+            return ['image', $img['caption'] ?? null, $img['url'] ?? null, $img['mimetype'] ?? null, null];
         }
 
         if (isset($message['videoMessage'])) {
             $vid = $message['videoMessage'];
-            return ['video', $vid['caption'] ?? null, null, $vid['mimetype'] ?? null, $vid['fileName'] ?? null];
+            return ['video', $vid['caption'] ?? null, $vid['url'] ?? null, $vid['mimetype'] ?? null, $vid['fileName'] ?? null];
         }
 
         if (isset($message['audioMessage'])) {
-            return ['audio', null, null, $message['audioMessage']['mimetype'] ?? null, null];
+            $aud = $message['audioMessage'];
+            return ['audio', null, $aud['url'] ?? null, $aud['mimetype'] ?? null, null];
         }
 
         if (isset($message['documentMessage'])) {
             $doc = $message['documentMessage'];
-            return ['document', $doc['caption'] ?? null, null, $doc['mimetype'] ?? null, $doc['fileName'] ?? null];
+            return ['document', $doc['caption'] ?? null, $doc['url'] ?? null, $doc['mimetype'] ?? null, $doc['fileName'] ?? null];
         }
 
         if (isset($message['stickerMessage'])) {

@@ -20,3 +20,12 @@ export const getMessages = (chatId, params) =>
 
 export const sendMessage = (chatId, data) =>
   api.post(`/chats/${chatId}/messages`, data).then((r) => r.data)
+
+export const getAgents = () =>
+  api.get('/agents').then((r) => r.data)
+
+export const deleteMessage = (chatId, messageId) =>
+  api.delete(`/chats/${chatId}/messages/${messageId}`).then((r) => r.data)
+
+export const getMessageMedia = (chatId, messageId) =>
+  api.get(`/chats/${chatId}/messages/${messageId}/media`).then((r) => r.data)
