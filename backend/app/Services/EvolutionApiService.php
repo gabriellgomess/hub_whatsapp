@@ -37,15 +37,18 @@ class EvolutionApiService
     public function setWebhook(string $webhookUrl): array
     {
         return $this->post("/webhook/set/{$this->instance->instance_name}", [
-            'url' => $webhookUrl,
-            'webhook_by_events' => false,
-            'webhook_base64' => false,
-            'events' => [
-                'MESSAGES_UPSERT',
-                'MESSAGES_UPDATE',
-                'CONNECTION_UPDATE',
-                'CONTACTS_UPDATE',
-                'CHATS_UPDATE',
+            'webhook' => [
+                'enabled'  => true,
+                'url'      => $webhookUrl,
+                'byEvents' => false,
+                'base64'   => false,
+                'events'   => [
+                    'MESSAGES_UPSERT',
+                    'MESSAGES_UPDATE',
+                    'CONNECTION_UPDATE',
+                    'CONTACTS_UPDATE',
+                    'CHATS_UPDATE',
+                ],
             ],
         ]);
     }

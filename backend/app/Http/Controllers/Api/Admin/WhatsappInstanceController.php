@@ -41,11 +41,8 @@ class WhatsappInstanceController extends Controller
             'active'             => true,
         ]);
 
-        // Cria a instância na Evolution API
+        // Cria a instância na Evolution API já com webhook configurado
         $this->createOnEvolution($instance);
-
-        // Configura o webhook automaticamente
-        $this->setupWebhook($request, $instance);
 
         return response()->json($instance, 201);
     }
@@ -140,23 +137,29 @@ class WhatsappInstanceController extends Controller
 
     private function createOnEvolution(WhatsappInstance $instance): void
     {
+        $webhookUrl = rtrim(config('app.url'), '/') . '/api/webhook/' . $instance->instance_name;
+
         try {
             \Illuminate\Support\Facades\Http::baseUrl($instance->evolution_api_url)
                 ->withHeader('apikey', $instance->evolution_api_key)
                 ->post('/instance/create', [
-                    'instanceName' => $instance->instance_name,
-                    'qrcode'       => true,
-                    'integration'  => 'WHATSAPP-BAILEYS',
+                    'instanceName'   => $instance->instance_name,
+                    'qrcode'         => true,
+                    'integration'    => 'WHATSAPP-BAILEYS',
+                    'webhook'        => [
+                        'enabled'  => true,
+                        'url'      => $webhookUrl,
+                        'byEvents' => false,
+                        'base64'   => false,
+                        'events'   => [
+                            'MESSAGES_UPSERT',
+                            'MESSAGES_UPDATE',
+                            'CONNECTION_UPDATE',
+                            'CONTACTS_UPDATE',
+                            'CHATS_UPDATE',
+                        ],
+                    ],
                 ]);
-        } catch (\Throwable) {}
-    }
-
-    private function setupWebhook(Request $request, WhatsappInstance $instance): void
-    {
-        try {
-            $webhookUrl = config('app.url') . '/api/webhook/' . $instance->instance_name;
-            $service = new EvolutionApiService($instance);
-            $service->setWebhook($webhookUrl);
         } catch (\Throwable) {}
     }
 

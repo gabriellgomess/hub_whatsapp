@@ -30,19 +30,26 @@ class ProcessWebhookEvent implements ShouldQueue
             return;
         }
 
-        match ($this->event) {
-            'MESSAGES_UPSERT'    => $this->handleMessageUpsert($instance),
-            'MESSAGES_UPDATE'    => $this->handleMessageUpdate($instance),
-            'CONNECTION_UPDATE'  => $this->handleConnectionUpdate($instance),
-            default              => null,
+        // Evolution API v2 usa dot notation minúsculo (messages.upsert)
+        // Evolution API v1 usava SNAKE_CASE maiúsculo (MESSAGES_UPSERT)
+        $event = strtolower(str_replace('_', '.', $this->event));
+
+        match ($event) {
+            'messages.upsert'   => $this->handleMessageUpsert($instance),
+            'messages.update'   => $this->handleMessageUpdate($instance),
+            'connection.update' => $this->handleConnectionUpdate($instance),
+            default             => null,
         };
     }
 
     private function handleMessageUpsert(WhatsappInstance $instance): void
     {
-        $data = $this->payload['data'] ?? [];
+        $raw = $this->payload['data'] ?? [];
 
-        foreach ((array) $data as $messageData) {
+        // Evolution v2 envia objeto único; v1 enviava array de objetos
+        $data = isset($raw['key']) ? [$raw] : array_values($raw);
+
+        foreach ($data as $messageData) {
             $key = $messageData['key'] ?? [];
             $messageId = $key['id'] ?? null;
             $remoteJid = $key['remoteJid'] ?? null;
@@ -121,9 +128,12 @@ class ProcessWebhookEvent implements ShouldQueue
 
     private function handleMessageUpdate(WhatsappInstance $instance): void
     {
-        $updates = $this->payload['data'] ?? [];
+        $raw = $this->payload['data'] ?? [];
 
-        foreach ((array) $updates as $update) {
+        // Evolution v2 envia objeto único; v1 enviava array
+        $updates = isset($raw['key']) ? [$raw] : array_values($raw);
+
+        foreach ($updates as $update) {
             $messageId = $update['key']['id'] ?? null;
             $status = $update['update']['status'] ?? null;
 
