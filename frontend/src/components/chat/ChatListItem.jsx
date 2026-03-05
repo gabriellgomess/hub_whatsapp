@@ -1,9 +1,39 @@
 import { formatDistanceToNow } from '../ui/dateUtils'
 
+const INSTANCE_BADGE_STYLES = [
+  'bg-sky-500/15 text-sky-300 border border-sky-500/30',
+  'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30',
+  'bg-amber-500/15 text-amber-300 border border-amber-500/30',
+  'bg-fuchsia-500/15 text-fuchsia-300 border border-fuchsia-500/30',
+  'bg-indigo-500/15 text-indigo-300 border border-indigo-500/30',
+  'bg-rose-500/15 text-rose-300 border border-rose-500/30',
+]
+
+function getInstanceBadgeStyle(instance) {
+  const key = `${instance?.id ?? ''}-${instance?.name ?? ''}`
+  if (!key || key === '-') {
+    return 'bg-gray-700/40 text-gray-400 border border-gray-600/40'
+  }
+
+  let hash = 0
+  for (let i = 0; i < key.length; i += 1) {
+    hash = ((hash << 5) - hash) + key.charCodeAt(i)
+    hash |= 0
+  }
+
+  const index = Math.abs(hash) % INSTANCE_BADGE_STYLES.length
+  return INSTANCE_BADGE_STYLES[index]
+}
+
 export default function ChatListItem({ chat, selected, onSelect }) {
   const contact = chat.contact
   const lastMessage = chat.last_message
-  const displayName = contact?.name || contact?.push_name || contact?.phone_number || contact?.jid || '?'
+  const assignedAgentName = chat.assigned_agent?.name || null
+  const instanceBadgeStyle = getInstanceBadgeStyle(chat.instance)
+  const isGroup = !!contact?.is_group
+  const displayName = isGroup
+    ? (contact?.name || contact?.jid || 'Grupo')
+    : (contact?.name || contact?.push_name || contact?.phone_number || contact?.jid || '?')
   const initials = displayName.charAt(0).toUpperCase()
 
   const statusColors = {
@@ -53,7 +83,9 @@ export default function ChatListItem({ chat, selected, onSelect }) {
 
           <div className="flex items-center gap-1 flex-shrink-0">
             {/* Instância badge */}
-            <span className="text-gray-600 text-xs">{chat.instance?.name}</span>
+            <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium max-w-[95px] truncate ${instanceBadgeStyle}`}>
+              {chat.instance?.name || 'instancia'}
+            </span>
 
             {/* Unread badge */}
             {chat.unread_count > 0 && (
@@ -63,6 +95,15 @@ export default function ChatListItem({ chat, selected, onSelect }) {
             )}
           </div>
         </div>
+
+        {assignedAgentName && (
+          <div className="mt-1 flex items-center gap-1.5 text-[11px] text-cyan-300 truncate">
+            <svg className="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+            </svg>
+            <span className="truncate">Atribuido: {assignedAgentName}</span>
+          </div>
+        )}
       </div>
     </button>
   )

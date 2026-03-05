@@ -180,7 +180,10 @@ export default function ChatWindow({ chatId }) {
   }
 
   const contact = chat?.contact
-  const displayName = contact?.name || contact?.push_name || contact?.phone_number || contact?.jid || '...'
+  const isGroupChat = !!contact?.is_group
+  const displayName = isGroupChat
+    ? (contact?.name || contact?.jid || 'Grupo')
+    : (contact?.name || contact?.push_name || contact?.phone_number || contact?.jid || '...')
 
   const statusConfig = {
     open:     { label: 'Aberta',    color: 'text-green-400',  next: 'pending',  nextLabel: 'Marcar pendente' },
@@ -196,9 +199,17 @@ export default function ChatWindow({ chatId }) {
       {/* Header */}
       <div className="flex items-center justify-between px-5 py-3 bg-gray-900 border-b border-gray-800 shrink-0">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-full bg-indigo-600 flex items-center justify-center text-white text-sm font-semibold shrink-0">
-            {displayName.charAt(0).toUpperCase()}
-          </div>
+          {contact?.profile_picture ? (
+            <img
+              src={contact.profile_picture}
+              alt={displayName}
+              className="w-9 h-9 rounded-full object-cover shrink-0"
+            />
+          ) : (
+            <div className="w-9 h-9 rounded-full bg-indigo-600 flex items-center justify-center text-white text-sm font-semibold shrink-0">
+              {displayName.charAt(0).toUpperCase()}
+            </div>
+          )}
           <div>
             <p className="text-white text-sm font-medium">{displayName}</p>
             <p className="text-gray-500 text-xs">{contact?.phone_number || contact?.jid}</p>
@@ -270,6 +281,7 @@ export default function ChatWindow({ chatId }) {
               <MessageBubble
                 key={msg.id}
                 message={msg}
+                isGroupChat={isGroupChat}
                 showDate={
                   i === 0 ||
                   new Date(msg.sent_at).toDateString() !==

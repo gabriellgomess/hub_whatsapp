@@ -55,6 +55,31 @@ export default function ChatList({ selectedChatId, onSelectChat, statusFilter, o
   }, [user?.company_id, qc])
 
   const chats = data?.data ?? []
+  const directChats = chats.filter((chat) => !chat.contact?.is_group)
+  const groupChats = chats.filter((chat) => !!chat.contact?.is_group)
+
+  const renderSection = (title, sectionChats) => {
+    if (sectionChats.length === 0) return null
+
+    return (
+      <div>
+        <div className="sticky top-0 z-[1] px-4 py-2 bg-gray-900/95 backdrop-blur border-b border-gray-800">
+          <p className="text-[11px] uppercase tracking-wide text-gray-500">
+            {title} ({sectionChats.length})
+          </p>
+        </div>
+
+        {sectionChats.map((chat) => (
+          <ChatListItem
+            key={chat.id}
+            chat={chat}
+            selected={chat.id === selectedChatId}
+            onSelect={() => onSelectChat(chat.id)}
+          />
+        ))}
+      </div>
+    )
+  }
 
   return (
     <div className="w-80 flex flex-col bg-gray-900 border-r border-gray-800 flex-shrink-0">
@@ -113,14 +138,10 @@ export default function ChatList({ selectedChatId, onSelectChat, statusFilter, o
             {search ? `Nenhum resultado para "${search}"` : `Nenhuma conversa ${statusFilter === 'open' ? 'aberta' : statusFilter === 'pending' ? 'pendente' : 'resolvida'}`}
           </div>
         ) : (
-          chats.map((chat) => (
-            <ChatListItem
-              key={chat.id}
-              chat={chat}
-              selected={chat.id === selectedChatId}
-              onSelect={() => onSelectChat(chat.id)}
-            />
-          ))
+          <>
+            {renderSection('Conversas diretas', directChats)}
+            {renderSection('Grupos', groupChats)}
+          </>
         )}
       </div>
     </div>

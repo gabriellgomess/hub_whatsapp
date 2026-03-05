@@ -6,6 +6,7 @@ use App\Models\Chat;
 use App\Models\Contact;
 use App\Models\Message;
 use App\Models\WhatsappInstance;
+use App\Services\EvolutionApiService;
 use App\Events\NewMessageReceived;
 use App\Events\ChatUpdated;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -54,6 +55,10 @@ class ProcessWebhookEvent implements ShouldQueue
             $messageId = $key['id'] ?? null;
             $remoteJid = $key['remoteJid'] ?? null;
             $fromMe = (bool) ($key['fromMe'] ?? false);
+            $isGroup = str_contains($remoteJid ?? '', '@g.us');
+            $contactPhoneNumber = !$isGroup
+                ? ($this->extractPhoneNumber($key['senderPn'] ?? null) ?? $this->extractPhoneNumber($remoteJid))
+                : null;
 
             if (!$messageId || !$remoteJid) {
                 continue;
@@ -64,20 +69,52 @@ class ProcessWebhookEvent implements ShouldQueue
                 continue;
             }
 
+            $groupNameFromPayload = $isGroup ? $this->extractGroupNameFromPayload($messageData) : null;
+
             // Garante que o contato existe
+            $contactDefaults = [
+                'company_id' => $instance->company_id,
+                'is_group' => $isGroup,
+            ];
+
+            if ($isGroup) {
+                if ($groupNameFromPayload) {
+                    $contactDefaults['name'] = $groupNameFromPayload;
+                }
+            } else {
+                $contactDefaults['push_name'] = $messageData['pushName'] ?? null;
+                if ($contactPhoneNumber) {
+                    $contactDefaults['phone_number'] = $contactPhoneNumber;
+                }
+            }
+
             $contact = Contact::firstOrCreate(
                 ['whatsapp_instance_id' => $instance->id, 'jid' => $remoteJid],
-                [
-                    'company_id' => $instance->company_id,
-                    'push_name' => $messageData['pushName'] ?? null,
-                    'is_group' => str_contains($remoteJid, '@g.us'),
-                ]
+                $contactDefaults
             );
 
-            // Atualiza push_name se mudou
-            if (isset($messageData['pushName']) && $contact->push_name !== $messageData['pushName']) {
-                $contact->update(['push_name' => $messageData['pushName']]);
+            // Atualiza metadados do contato
+            if ($isGroup) {
+                $resolvedGroupName = $groupNameFromPayload;
+
+                if (!$resolvedGroupName && blank($contact->name)) {
+                    $resolvedGroupName = $this->resolveGroupName($instance, $remoteJid, $messageData);
+                }
+
+                if ($resolvedGroupName && $contact->name !== $resolvedGroupName) {
+                    $contact->update(['name' => $resolvedGroupName]);
+                }
+            } else {
+                if (isset($messageData['pushName']) && $contact->push_name !== $messageData['pushName']) {
+                    $contact->update(['push_name' => $messageData['pushName']]);
+                }
+                if ($contactPhoneNumber && blank($contact->phone_number)) {
+                    $contact->update(['phone_number' => $contactPhoneNumber]);
+                    $contact->phone_number = $contactPhoneNumber;
+                }
             }
+
+            $this->syncContactProfilePicture($instance, $contact, $contactPhoneNumber);
 
             // Garante que o chat existe
             $chat = Chat::firstOrCreate(
@@ -214,5 +251,122 @@ class ProcessWebhookEvent implements ShouldQueue
         }
 
         return ['unknown', null, null, null, null];
+    }
+
+    private function syncContactProfilePicture(WhatsappInstance $instance, Contact $contact, ?string $preferredNumber = null): void
+    {
+        if (!$this->shouldFetchProfilePicture($contact)) {
+            return;
+        }
+
+        try {
+            $service = new EvolutionApiService($instance);
+            $lookup = $preferredNumber ?: ($contact->phone_number ?: $contact->jid);
+            $result = $service->fetchProfilePicture($lookup);
+            $pictureUrl = $this->extractProfilePictureUrl($result);
+
+            $extra = $contact->extra ?? [];
+            $extra['profile_picture_checked_at'] = now()->toIso8601String();
+            $payload = ['extra' => $extra];
+
+            if ($pictureUrl) {
+                $payload['profile_picture'] = $pictureUrl;
+            }
+
+            $contact->update($payload);
+        } catch (\Throwable) {
+            // Ignore provider errors and continue webhook processing.
+        }
+    }
+
+    private function shouldFetchProfilePicture(Contact $contact): bool
+    {
+        if (!blank($contact->profile_picture)) {
+            return false;
+        }
+
+        $lastChecked = data_get($contact->extra, 'profile_picture_checked_at');
+        if (!$lastChecked) {
+            return true;
+        }
+
+        try {
+            return Carbon::parse($lastChecked)->lt(now()->subHours(6));
+        } catch (\Throwable) {
+            return true;
+        }
+    }
+
+    private function extractProfilePictureUrl(array $payload): ?string
+    {
+        $keys = ['profilePictureUrl', 'profilePicture', 'profilePicUrl', 'url'];
+        return $this->findFirstStringByKeys($payload, $keys);
+    }
+
+    private function extractPhoneNumber(?string $jidOrNumber): ?string
+    {
+        if (!$jidOrNumber || !is_string($jidOrNumber)) {
+            return null;
+        }
+
+        $value = trim($jidOrNumber);
+        if ($value === '') {
+            return null;
+        }
+
+        if (str_contains($value, '@')) {
+            $value = strstr($value, '@', true) ?: $value;
+        }
+
+        $digits = preg_replace('/\D+/', '', $value);
+
+        return $digits !== '' ? $digits : null;
+    }
+
+    private function resolveGroupName(WhatsappInstance $instance, string $groupJid, array $messageData): ?string
+    {
+        $name = $this->extractGroupNameFromPayload($messageData);
+        if ($name) {
+            return $name;
+        }
+
+        try {
+            $service = new EvolutionApiService($instance);
+            $groupInfo = $service->findGroupInfo($groupJid);
+
+            return $this->extractGroupNameFromPayload($groupInfo);
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    private function extractGroupNameFromPayload(array $payload): ?string
+    {
+        $keys = ['subject', 'groupSubject', 'groupName', 'chatName', 'conversationName'];
+
+        return $this->findFirstStringByKeys($payload, $keys);
+    }
+
+    private function findFirstStringByKeys(array $data, array $keys): ?string
+    {
+        foreach ($keys as $key) {
+            if (isset($data[$key]) && is_string($data[$key])) {
+                $value = trim($data[$key]);
+                if ($value !== '') {
+                    return $value;
+                }
+            }
+        }
+
+        foreach ($data as $value) {
+            if (is_array($value)) {
+                $found = $this->findFirstStringByKeys($value, $keys);
+                if ($found) {
+                    return $found;
+                }
+            }
+        }
+
+        return null;
     }
 }

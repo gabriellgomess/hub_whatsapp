@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Chat;
+use App\Services\EvolutionApiService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -48,16 +49,22 @@ class ChatController extends Controller
             $query->where('archived', false);
         }
 
-        return response()->json($query->paginate(30));
+        $chats = $query->paginate(30);
+        $this->hydrateMissingGroupNames($chats->getCollection());
+        $this->hydrateMissingProfilePictures($chats->getCollection());
+
+        return response()->json($chats);
     }
 
     public function show(Request $request, Chat $chat): JsonResponse
     {
         $this->authorizeChat($request, $chat);
 
-        return response()->json(
-            $chat->load(['contact', 'lastMessage', 'assignedAgent', 'labels', 'instance'])
-        );
+        $chat = $chat->load(['contact', 'lastMessage', 'assignedAgent', 'labels', 'instance']);
+        $this->hydrateMissingGroupNames(collect([$chat]));
+        $this->hydrateMissingProfilePictures(collect([$chat]));
+
+        return response()->json($chat);
     }
 
     public function updateStatus(Request $request, Chat $chat): JsonResponse
@@ -92,5 +99,101 @@ class ChatController extends Controller
     private function authorizeChat(Request $request, Chat $chat): void
     {
         abort_if($chat->company_id !== $request->user()->company_id, 403);
+    }
+
+    private function hydrateMissingGroupNames(\Illuminate\Support\Collection $chats): void
+    {
+        foreach ($chats as $chat) {
+            $contact = $chat->contact;
+            $instance = $chat->instance;
+
+            if (!$contact || !$instance || !$contact->is_group || !blank($contact->name)) {
+                continue;
+            }
+
+            try {
+                $service = new EvolutionApiService($instance);
+                $groupInfo = $service->findGroupInfo($contact->jid);
+                $groupName = $this->extractGroupName($groupInfo);
+
+                if ($groupName) {
+                    $contact->update(['name' => $groupName]);
+                    $contact->name = $groupName;
+                }
+            } catch (\Throwable) {
+                // Keep chat listing responsive even if provider lookup fails.
+            }
+        }
+    }
+
+    private function hydrateMissingProfilePictures(\Illuminate\Support\Collection $chats): void
+    {
+        $checked = [];
+
+        foreach ($chats as $chat) {
+            $contact = $chat->contact;
+            $instance = $chat->instance;
+
+            if (!$contact || !$instance || !blank($contact->profile_picture)) {
+                continue;
+            }
+
+            $cacheKey = $instance->id . '|' . $contact->jid;
+            if (isset($checked[$cacheKey])) {
+                continue;
+            }
+            $checked[$cacheKey] = true;
+
+            try {
+                $service = new EvolutionApiService($instance);
+                $lookup = $contact->phone_number ?: $contact->jid;
+                $result = $service->fetchProfilePicture($lookup);
+                $pictureUrl = $this->extractProfilePictureUrl($result);
+
+                if ($pictureUrl) {
+                    $contact->update(['profile_picture' => $pictureUrl]);
+                    $contact->profile_picture = $pictureUrl;
+                }
+            } catch (\Throwable) {
+                // Keep chat listing responsive even if provider lookup fails.
+            }
+        }
+    }
+
+    private function extractGroupName(array $payload): ?string
+    {
+        $keys = ['subject', 'groupSubject', 'groupName', 'chatName', 'conversationName'];
+
+        return $this->findFirstStringByKeys($payload, $keys);
+    }
+
+    private function extractProfilePictureUrl(array $payload): ?string
+    {
+        $keys = ['profilePictureUrl', 'profilePicture', 'profilePicUrl', 'url'];
+
+        return $this->findFirstStringByKeys($payload, $keys);
+    }
+
+    private function findFirstStringByKeys(array $data, array $keys): ?string
+    {
+        foreach ($keys as $key) {
+            if (isset($data[$key]) && is_string($data[$key])) {
+                $value = trim($data[$key]);
+                if ($value !== '') {
+                    return $value;
+                }
+            }
+        }
+
+        foreach ($data as $value) {
+            if (is_array($value)) {
+                $found = $this->findFirstStringByKeys($value, $keys);
+                if ($found) {
+                    return $found;
+                }
+            }
+        }
+
+        return null;
     }
 }

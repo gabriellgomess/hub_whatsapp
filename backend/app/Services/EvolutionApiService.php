@@ -202,7 +202,42 @@ class EvolutionApiService
 
     public function fetchProfilePicture(string $jid): array
     {
-        return $this->get("/chat/fetchProfilePicture/{$this->instance->instance_name}?number={$jid}");
+        $endpoint = "/chat/fetchProfilePictureUrl/{$this->instance->instance_name}";
+        $numbers = [$jid];
+
+        $baseNumber = strstr($jid, '@', true);
+        if ($baseNumber !== false && $baseNumber !== '') {
+            $numbers[] = $baseNumber;
+        }
+
+        $lastResponse = [];
+
+        foreach (array_values(array_unique($numbers)) as $number) {
+            $response = $this->post($endpoint, ['number' => $number]);
+            $lastResponse = is_array($response) ? $response : [];
+
+            if ($this->containsProfilePictureUrl($lastResponse)) {
+                return $lastResponse;
+            }
+        }
+
+        // Compatibilidade com providers antigos.
+        foreach (array_values(array_unique($numbers)) as $number) {
+            $response = $this->get("/chat/fetchProfilePicture/{$this->instance->instance_name}?number={$number}");
+            $lastResponse = is_array($response) ? $response : [];
+
+            if ($this->containsProfilePictureUrl($lastResponse)) {
+                return $lastResponse;
+            }
+        }
+
+        return $lastResponse;
+    }
+
+    public function findGroupInfo(string $groupJid): array
+    {
+        $groupJid = urlencode($groupJid);
+        return $this->get("/group/findGroupInfos/{$this->instance->instance_name}?groupJid={$groupJid}");
     }
 
     // -------------------------------------------------------------------------
@@ -230,5 +265,24 @@ class EvolutionApiService
     private function delete(string $endpoint, array $data = []): array
     {
         return $this->http()->delete($endpoint, $data)->json() ?? [];
+    }
+
+    private function containsProfilePictureUrl(array $payload): bool
+    {
+        $keys = ['profilePictureUrl', 'profilePicture', 'profilePicUrl', 'url'];
+
+        foreach ($keys as $key) {
+            if (isset($payload[$key]) && is_string($payload[$key]) && trim($payload[$key]) !== '') {
+                return true;
+            }
+        }
+
+        foreach ($payload as $value) {
+            if (is_array($value) && $this->containsProfilePictureUrl($value)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { formatTime } from '../ui/dateUtils'
 import { getMessageMedia } from '../../api/chats'
 
@@ -49,16 +49,35 @@ function MediaLoadButton({ onLoad, loading, error, label, icon }) {
   )
 }
 
-export default function MessageBubble({ message, showDate, onDelete }) {
+function formatParticipantJid(participantJid) {
+  if (!participantJid || typeof participantJid !== 'string') return null
+  return participantJid.split('@')[0] || null
+}
+
+function getGroupSenderName(message) {
+  const raw = message?.raw_payload ?? {}
+  const senderName = raw.pushName
+  if (senderName && typeof senderName === 'string' && senderName.trim() !== '') {
+    return senderName.trim()
+  }
+
+  const participantJid = raw?.key?.participant || raw?.participant
+  return formatParticipantJid(participantJid)
+}
+
+export default function MessageBubble({ message, showDate, onDelete, isGroupChat = false }) {
   const isMe = message.from_me
   const [loadedSrc, setLoadedSrc] = useState(null)
   const [loadingMedia, setLoadingMedia] = useState(false)
   const [mediaError, setMediaError] = useState(false)
   const [showViewer, setShowViewer] = useState(false)
+  const groupSenderName = isGroupChat && !isMe ? getGroupSenderName(message) : null
+  const autoLoadAttemptedRef = useRef(false)
 
   const mediaSrc = loadedSrc || message.media_url || null
+  const canAutoLoadMedia = ['image', 'video', 'audio', 'document'].includes(message.type)
 
-  const handleLoadMedia = async () => {
+  const handleLoadMedia = useCallback(async () => {
     setLoadingMedia(true)
     setMediaError(false)
     try {
@@ -72,7 +91,20 @@ export default function MessageBubble({ message, showDate, onDelete }) {
       setMediaError(true)
     }
     setLoadingMedia(false)
-  }
+  }, [message.chat_id, message.id])
+
+  useEffect(() => {
+    if (!canAutoLoadMedia || mediaSrc || autoLoadAttemptedRef.current) {
+      return
+    }
+
+    autoLoadAttemptedRef.current = true
+    const timeoutId = setTimeout(() => {
+      handleLoadMedia()
+    }, 0)
+
+    return () => clearTimeout(timeoutId)
+  }, [canAutoLoadMedia, mediaSrc, message.id, handleLoadMedia])
 
   const renderMedia = () => {
     switch (message.type) {
@@ -181,9 +213,13 @@ export default function MessageBubble({ message, showDate, onDelete }) {
               : 'bg-gray-800 text-white rounded-bl-sm'
           }`}
         >
-          {/* Remetente (agente) */}
-          {!isMe && message.sender_user && (
-            <p className="text-green-400 text-xs font-semibold mb-1">{message.sender_user.name}</p>
+          {/* Remetente */}
+          {groupSenderName ? (
+            <p className="text-cyan-300 text-xs font-semibold mb-1">{groupSenderName}</p>
+          ) : (
+            !isMe && message.sender_user && (
+              <p className="text-green-400 text-xs font-semibold mb-1">{message.sender_user.name}</p>
+            )
           )}
 
           {/* Conteúdo */}
